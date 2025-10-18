@@ -21,6 +21,11 @@ Homepage = "https://github.com/YOUR-USER/emerlang"
 Repository = "https://github.com/YOUR-USER/emerlang"
 
 [project.scripts]
+emerlang-gui-plus = "emerlang.gui.emerlang_gui_plus:main"
+emerlang-extra = "emerlang.extra_cli:app"
+emerlang-stego-json = "emerlang.extra_cli:app"
+emerlang-stego-space = "emerlang.extra_cli:app"
+emerlang-crypto = "emerlang.extra_cli:app"
 emerlang = "emerlang.cli:app"
 emerlang-gui = "emerlang.gui.emerlang_gui:main"
 

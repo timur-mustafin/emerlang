@@ -32,3 +32,30 @@ def encode(text: str, codebook, structure: float = 0.2, seed: int = 42) -> str:
                 salted.append(rnd.choice(["::","∴","⇔"]))
         out = salted
     return smart_join(out)
+
+
+# --- Optional dialect mapping (non-breaking extension) ---
+try:
+    from .dialects import build_dialect
+except Exception:
+    build_dialect = None
+
+def encode_with_dialect(text: str, codebook, structure: float = 0.2, seed: int = 42, dialect_seed: int | None = None) -> str:
+    """Wraps core encode() and then remaps visible ASCII letters via a seeded palette.
+    If dialect_seed is None or dialects module missing, behaves like encode().
+    """
+    emergent = encode(text, codebook, structure=structure, seed=seed)
+    if dialect_seed is None or build_dialect is None:
+        return emergent
+    d = build_dialect(dialect_seed)
+    # simple remap: letters a-z/A-Z replaced by palette symbols deterministically by ord
+    out = []
+    for ch in emergent:
+        o = ord(ch)
+        if 65 <= o <= 90:   # A-Z
+            out.append(d.map_index(o - 65))
+        elif 97 <= o <= 122:  # a-z
+            out.append(d.map_index(o - 97))
+        else:
+            out.append(ch)
+    return "".join(out)

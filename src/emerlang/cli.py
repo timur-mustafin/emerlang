@@ -131,3 +131,112 @@ def interactive():
 
 if __name__ == "__main__":
     app()
+
+
+# ==== Advanced commands with dialect/stego/crypto toggles ====
+from .encoder import encode_with_dialect as _encode_with_dialect
+from .stego.jsonsteg import encode_json as _json_encode, decode_json as _json_decode
+from .stego.spacesteg import encode as _space_encode, decode as _space_decode
+from .crypto import xor_stream as _xor_stream
+import base64, json
+
+@app.command("encode-adv")
+def encode_adv(
+    text: str = typer.Option("", "--text", help="Plain input text (if empty, read from stdin)"),
+    codebook_path: Path = typer.Option(..., "--codebook", help="Path to codebook.json"),
+    out_text: Path = typer.Option(None, "--out-text", help="Write emergent text here (if not using stego/xor)"),
+    dialect_seed: int = typer.Option(None, "--dialect-seed", help="Apply dialect remap if provided"),
+    # space-stego
+    space_carrier_in: Path = typer.Option(None, "--space-in", help="Carrier text file for space-stego"),
+    space_out: Path = typer.Option(None, "--space-out", help="Output text file with hidden payload"),
+    # json-stego
+    json_in: Path = typer.Option(None, "--json-in", help="Carrier JSON file"),
+    json_out: Path = typer.Option(None, "--json-out", help="Output JSON file with hidden payload"),
+    json_num_keys: str = typer.Option("", "--json-num-keys", help="Comma separated numeric keys"),
+    json_str_keys: str = typer.Option("", "--json-str-keys", help="Comma separated string keys"),
+    json_channel: str = typer.Option("order+zwsp+numeric", "--json-channel", help="Channels to use"),
+    # xor "encryption"
+    xor_key: str = typer.Option(None, "--xor-key", help="Toy XOR key (UTF-8). If set, write bytes."),
+    xor_nonce: str = typer.Option("", "--xor-nonce", help="Toy XOR nonce (UTF-8)"),
+    xor_out: Path = typer.Option(None, "--xor-out", help="Output file for XORed bytes"),
+):
+    cb = Codebook.load(codebook_path)
+    content = text or sys.stdin.read()
+    emergent = _encode_with_dialect(content, cb, dialect_seed=dialect_seed)
+
+    # Apply routes in priority: JSON stego > space stego > XOR > plain text
+    if json_in and json_out:
+        nkeys = [k for k in json_num_keys.split(",") if k]
+        skeys = [k for k in json_str_keys.split(",") if k]
+        src = json_in.read_text(encoding="utf-8")
+        out = _json_encode(src, emergent.encode("utf-8"), channel=json_channel, numeric_keys=nkeys, string_keys=skeys)
+        json_out.write_text(out, encoding="utf-8")
+        typer.echo(f"Wrote JSON with hidden payload: {json_out}")
+        return
+
+    if space_carrier_in and space_out:
+        carrier = space_carrier_in.read_text(encoding="utf-8")
+        out = _space_encode(carrier, emergent.encode("utf-8"))
+        space_out.write_text(out, encoding="utf-8")
+        typer.echo(f"Wrote space-stego file: {space_out}")
+        return
+
+    if xor_key and xor_out:
+        data = emergent.encode("utf-8")
+        out = _xor_stream(data, xor_key.encode("utf-8"), xor_nonce.encode("utf-8"))
+        xor_out.write_bytes(out)
+        typer.echo(f"Wrote XORed bytes: {xor_out}")
+        return
+
+    # fallback: just write text
+    if out_text:
+        out_text.write_text(emergent, encoding="utf-8")
+        typer.echo(f"Wrote emergent text: {out_text}")
+    else:
+        sys.stdout.write(emergent)
+
+
+@app.command("decode-adv")
+def decode_adv(
+    codebook_path: Path = typer.Option(..., "--codebook", help="Path to codebook.json"),
+    # Sources (pick one)
+    in_text: Path = typer.Option(None, "--in-text", help="File with emergent text (UTF-8)"),
+    json_in: Path = typer.Option(None, "--json-in", help="JSON file with hidden payload"),
+    space_in: Path = typer.Option(None, "--space-in", help="Text file with hidden payload"),
+    # If using space-in: bytes length
+    space_bytes: int = typer.Option(0, "--space-bytes", help="Number of bytes to extract from space-stego"),
+    # If using XOR
+    xor_key: str = typer.Option(None, "--xor-key", help="Toy XOR key (UTF-8)"),
+    xor_nonce: str = typer.Option("", "--xor-nonce", help="Toy XOR nonce (UTF-8)"),
+):
+    cb = Codebook.load(codebook_path)
+
+    payload: bytes | None = None
+    if json_in:
+        src = json_in.read_text(encoding="utf-8")
+        payload = _json_decode(src)
+        text = payload.decode("utf-8", errors="replace")
+        plain = decode_core(text, cb)
+        sys.stdout.write(plain)
+        return
+
+    if space_in and space_bytes > 0:
+        carrier = space_in.read_text(encoding="utf-8")
+        payload = _space_decode(carrier, space_bytes * 8)
+        text = payload.decode("utf-8", errors="replace")
+        plain = decode_core(text, cb)
+        sys.stdout.write(plain)
+        return
+
+    if in_text:
+        emergent = in_text.read_text(encoding="utf-8")
+    else:
+        emergent = sys.stdin.read()
+
+    if xor_key:
+        b = bytes(emergent, "utf-8", "replace")
+        b = _xor_stream(b, xor_key.encode("utf-8"), xor_nonce.encode("utf-8"))
+        emergent = b.decode("utf-8", errors="replace")
+
+    plain = decode_core(emergent, cb)
+    sys.stdout.write(plain)

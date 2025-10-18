@@ -47,14 +47,23 @@ python -m emerlang.gui.emerlang_gui
 ![Demo Tab](./docs/demotab.png)
 
 ## TODO
-- crypto.py # optional toy XOR/ChaCha20 wrapper (clearly marked NOT-secure)
--   dialects.py         # seeded symbol palettes, “styles”
--   structure.py        # structural markers, probabilistic templates
--     stego/jsonsteg.py       # key-order, numeric-params, comment/space tricks
--     stego/spacesteg.py      # zero-width/whitespace-based channel
-- tests (test_codec, test_reversibility, test_stego)
+- GUI update for XOR, dialects and stego
 
 ## Notes
 - Input file decoding is tolerant (UTF-8 / UTF-8 BOM / UTF-16 LE/BE).
 - Decoder understands both glyph blocks (⟦…~cc⟧) and Greek+digits tokens (e.g., Πε13).
 - This is an art/education demo, **not** secure encryption.
+
+
+## Extra tools (stego & crypto)
+
+After installing in editable mode:
+
+```bash
+emerlang-extra --help
+emerlang-stego-json stego-json-encode --in demo.json --out out.json --payload "secret" --num-keys a,b --str-keys c,d
+emerlang-stego-json stego-json-decode --in out.json
+emerlang-stego-space stego-space-encode --in demo.txt --out out.txt --payload "Hi"
+emerlang-stego-space stego-space-decode --in out.txt --bytes 2
+emerlang-crypto crypto-xor --in file.bin --out enc.bin --key test --nonce n
+```

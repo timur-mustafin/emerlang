@@ -46,9 +46,6 @@ python -m emerlang.gui.emerlang_gui
 ![Decode Tab](./docs/decodetab.png)
 ![Demo Tab](./docs/demotab.png)
 
-## TODO
-- GUI update for XOR, dialects and stego
-
 ## Notes
 - Input file decoding is tolerant (UTF-8 / UTF-8 BOM / UTF-16 LE/BE).
 - Decoder understands both glyph blocks (⟦…~cc⟧) and Greek+digits tokens (e.g., Πε13).

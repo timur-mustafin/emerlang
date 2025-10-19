@@ -500,3 +500,109 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# === Advanced toggles (Dialect / Space-stego / XOR) integrated into existing GUI ===
+try:
+    from emerlang.encoder import encode_with_dialect as _encode_with_dialect
+except Exception:
+    _encode_with_dialect = None
+
+from emerlang.stego.spacesteg import encode as _space_encode, decode as _space_decode
+from emerlang.crypto import xor_stream as _xor_stream
+
+ADVANCED_DOCK = None
+_ORIG_EM_ENCODE = em_encode
+_ORIG_EM_DECODE = em_decode
+
+class _AdvancedDock(QtWidgets.QDockWidget):
+    def __init__(self, parent=None):
+        super().__init__("Advanced", parent)
+        w = QtWidgets.QWidget()
+        form = QtWidgets.QFormLayout(w)
+
+        # Dialect
+        self.chkDialect = QtWidgets.QCheckBox("Use dialect remap")
+        self.dialectSeed = QtWidgets.QSpinBox(); self.dialectSeed.setRange(0, 2**31-1); self.dialectSeed.setValue(99)
+        row = QtWidgets.QHBoxLayout(); row.addWidget(self.chkDialect); row.addWidget(QtWidgets.QLabel("seed")); row.addWidget(self.dialectSeed)
+        form.addRow(row)
+
+        # Space-stego
+        self.chkSpace = QtWidgets.QCheckBox("Space-stego (invisible trailer)")
+        self.spaceBytes = QtWidgets.QSpinBox(); self.spaceBytes.setRange(0, 100000); self.spaceBytes.setValue(0)
+        form.addRow(self.chkSpace)
+        form.addRow(QtWidgets.QLabel("Decode bytes (optional):"))
+        form.addRow(self.spaceBytes)
+
+        # XOR (toy)
+        self.chkXor = QtWidgets.QCheckBox("Toy XOR (NOT secure)")
+        self.xorKey = QtWidgets.QLineEdit(); self.xorKey.setPlaceholderText("key")
+        self.xorNonce = QtWidgets.QLineEdit(); self.xorNonce.setPlaceholderText("nonce (optional)")
+        row2 = QtWidgets.QHBoxLayout(); row2.addWidget(self.chkXor); row2.addWidget(self.xorKey); row2.addWidget(self.xorNonce)
+        form.addRow(row2)
+
+        self.setWidget(w)
+
+def _install_advanced(main_window: QtWidgets.QMainWindow):
+    global ADVANCED_DOCK, em_encode, em_decode, _ORIG_EM_ENCODE, _ORIG_EM_DECODE
+    if ADVANCED_DOCK is not None:
+        return
+    ADVANCED_DOCK = _AdvancedDock(main_window)
+    try:
+        main_window.addDockWidget(QtCore.Qt.BottomDockWidgetArea, ADVANCED_DOCK)
+    except Exception:
+        # If not a QMainWindow for some reason, just show as standalone
+        ADVANCED_DOCK.show()
+
+    # Monkeypatch encode/decode used by GUI
+    def _encode_wrapper(text: str, codebook, structure: float = 0.2, seed: int = 42) -> str:
+        # core
+        emergent = _ORIG_EM_ENCODE(text, codebook, structure=structure, seed=seed)
+        # dialect
+        if _encode_with_dialect and ADVANCED_DOCK.chkDialect.isChecked():
+            emergent = _encode_with_dialect(text, codebook, structure=structure, seed=seed,
+                                            dialect_seed=int(ADVANCED_DOCK.dialectSeed.value()))
+        # space-stego
+        if ADVANCED_DOCK.chkSpace.isChecked():
+            emergent = _space_encode("", emergent.encode("utf-8")).decode("utf-8", "replace") if False else \
+                       _space_encode("", emergent.encode("utf-8"))  # returns str
+        # XOR
+        if ADVANCED_DOCK.chkXor.isChecked() and ADVANCED_DOCK.xorKey.text():
+            b = _xor_stream(emergent.encode("utf-8"),
+                            ADVANCED_DOCK.xorKey.text().encode("utf-8"),
+                            ADVANCED_DOCK.xorNonce.text().encode("utf-8"))
+            emergent = b.decode("utf-8", "replace")
+        return emergent
+
+    def _decode_wrapper(emergent: str, codebook) -> str:
+        src = emergent
+        # XOR first (if applied during encode)
+        if ADVANCED_DOCK.chkXor.isChecked() and ADVANCED_DOCK.xorKey.text():
+            b = _xor_stream(src.encode("utf-8", "replace"),
+                            ADVANCED_DOCK.xorKey.text().encode("utf-8"),
+                            ADVANCED_DOCK.xorNonce.text().encode("utf-8"))
+            src = b.decode("utf-8", "replace")
+        # space-stego (if used)
+        if ADVANCED_DOCK.chkSpace.isChecked():
+            bits = int(ADVANCED_DOCK.spaceBytes.value()) * 8 if ADVANCED_DOCK.spaceBytes.value() else len(src) * 8
+            payload = _space_decode(src, bits)
+            try:
+                src = payload.decode("utf-8", "replace")
+            except Exception:
+                pass
+        return _ORIG_EM_DECODE(src, codebook)
+
+    # Replace module-level references
+    em_encode = _encode_wrapper
+    em_decode = _decode_wrapper
+
+# Hook into MainWindow creation: install dock after MainWindow is shown
+_old_MainWindow_init = MainWindow.__init__
+def _mw_init(self, *a, **kw):
+    _old_MainWindow_init(self, *a, **kw)
+    try:
+        _install_advanced(self)
+    except Exception as e:
+        # non-fatal
+        pass
+MainWindow.__init__ = _mw_init
